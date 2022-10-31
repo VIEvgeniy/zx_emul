@@ -1,5 +1,7 @@
 #include "z80.h"
 
+bool z80_gen_nmi_from_main = false;
+
 // MARK: timings
 static const uint8_t cyc_00[256] = {4, 10, 7, 6, 4, 4, 7, 4, 4, 11, 7, 6, 4, 4,
     7, 4, 8, 10, 7, 6, 4, 4, 7, 4, 12, 11, 7, 6, 4, 4, 7, 4, 7, 10, 16, 6, 4, 4,
@@ -14,10 +16,10 @@ static const uint8_t cyc_00[256] = {4, 10, 7, 6, 4, 4, 7, 4, 4, 11, 7, 6, 4, 4,
     10, 11, 7, 11, 5, 4, 10, 4, 10, 0, 7, 11, 5, 10, 10, 4, 10, 11, 7, 11, 5, 6,
     10, 4, 10, 0, 7, 11};
 
-static const uint8_t cyc_ed[256] = {8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 12,
-    12, 15, 20, 8, 14, 8, 9, 12, 12, 15, 20, 8, 14, 8, 9, 12, 12, 15, 20, 8, 14,
+static const uint8_t cyc_ed[256] = {8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, //0 - 14
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,   //15 - 39
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 12,  //40 - 64
+    12, 15, 20, 8, 14, 8, 9/*71*/, 12, 12, 15, 20, 8, 14, 8, 9, 12, 12, 15, 20, 8, 14,  //65 - 85
     8, 9, 12, 12, 15, 20, 8, 14, 8, 9, 12, 12, 15, 20, 8, 14, 8, 18, 12, 12, 15,
     20, 8, 14, 8, 18, 12, 12, 15, 20, 8, 14, 8, 8, 12, 12, 15, 20, 8, 14, 8, 8,
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
@@ -660,14 +662,25 @@ static inline uint16_t displace(
 static inline void process_interrupts(z80* const z) {
   // "When an EI instruction is executed, any pending interrupt request
   // is not accepted until after the instruction following EI is executed."
-  if (z->iff_delay > 0) {
+
+  if (z->iff_delay > 0)
+  {
     z->iff_delay -= 1;
-    if (z->iff_delay == 0) {
+
+    if (z->iff_delay == 0) 
+    {
       z->iff1 = 1;
-      z->iff2 = 1;
+      z->iff2 = 1; 
     }
     return;
   }
+
+ if (z->iff1==0)
+    {
+      z->int_pending = 0;
+      return;
+    }
+
 
   if (z->nmi_pending) {
     z->nmi_pending = 0;
@@ -679,6 +692,7 @@ static inline void process_interrupts(z80* const z) {
     call(z, 0x66);
     return;
   }
+
 
   if (z->int_pending && z->iff1) {
     z->int_pending = 0;
@@ -698,7 +712,7 @@ static inline void process_interrupts(z80* const z) {
       call(z, 0x38);
       break;
 
-    case 2:
+    case 2:     
       z->cyc += 19;
       call(z, rw(z, (z->i << 8) | z->int_data));
       break;
@@ -720,7 +734,8 @@ void z80_init(z80* const z) {
   z->write_byte = NULL;
   z->port_in = NULL;
   z->port_out = NULL;
-  z->userdata = NULL;
+  //z->userdata = NULL;
+  z->userdata = z; //NULL Date: 2022-10-23
 
   z->cyc = 0;
 
@@ -785,17 +800,27 @@ void z80_step(z80* const z) {
   process_interrupts(z);
 
 }
-
+/*
+  printf("PC: %04X, AF: %04X, BC: %04X, DE: %04X, HL: %04X, SP: %04X (%02X %02X [%02X %02X] %02X %02X), "
+         "IX: %04X, IY: %04X, I: %02X, R: %02X",
+      z->pc, (z->a << 8) | get_f(z), get_bc(z), get_de(z), get_hl(z),
+      z->sp, rb(z, z->sp-2), rb(z, z->sp-1), rb(z, z->sp), rb(z, z->sp+1), rb(z, z->sp+2), rb(z, z->sp+3),
+      z->ix, z->iy, z->i, z->r);
+*/
 // outputs to stdout a debug trace of the emulator
 void z80_debug_output(z80* const z) {
-  printf("PC: %04X, AF: %04X, BC: %04X, DE: %04X, HL: %04X, SP: %04X, "
-         "IX: %04X, IY: %04X, I: %02X, R: %02X",
-      z->pc, (z->a << 8) | get_f(z), get_bc(z), get_de(z), get_hl(z), z->sp,
-      z->ix, z->iy, z->i, z->r);
+  printf("PC:%04X AF:%04X BC:%04X DE:%04X HL:%04X SP:%04X (%02X %02X [%02X %02X] %02X %02X) IX:%04X IY:%04X I:%02X",
+      z->pc, (z->a << 8) | get_f(z), get_bc(z), get_de(z), get_hl(z),
+      z->sp, rb(z, z->sp-2), rb(z, z->sp-1), rb(z, z->sp), rb(z, z->sp+1), rb(z, z->sp+2), rb(z, z->sp+3),
+      z->ix, z->iy, z->i);
 
   printf("\t(%02X %02X %02X %02X), cyc: %lu\n", rb(z, z->pc), rb(z, z->pc + 1),
       rb(z, z->pc + 2), rb(z, z->pc + 3), z->cyc);
+
+  printf("\t(%02X %02X %02X %02X)\n", rb(z, z->pc), rb(z, z->pc + 1),
+      rb(z, z->pc + 2), rb(z, z->pc + 3));
 }
+
 
 // function to call when an NMI is to be serviced
 void z80_gen_nmi(z80* const z) {
@@ -803,7 +828,7 @@ void z80_gen_nmi(z80* const z) {
 }
 
 // function to call when an INT is to be serviced
-void z80_gen_int(z80* const z, uint8_t data) {
+extern void z80_gen_int(z80* const z, uint8_t data) {
   z->int_pending = 1;
   z->int_data = data;
 }

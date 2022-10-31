@@ -33,6 +33,7 @@ struct z80 {
   
   uint8_t _hi_addr_port;
   uint8_t prev_opcode;
+  bool is_fc;
 };
 
 void z80_init(z80* const z);

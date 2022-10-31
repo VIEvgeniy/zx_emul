@@ -15,7 +15,6 @@
 #include "hardware/vreg.h"
 
 
-
 #include "g_config.h"
 #include "VGA.h"
 #include "ps2.h"
@@ -23,6 +22,9 @@
 
 #include "zx_emu/zx_machine.h"
 #include "zx_emu/aySoundSoft.h"
+
+#include "joy.h"
+
 
 void software_reset()
 {
@@ -99,61 +101,9 @@ bool __not_in_flash_func(AY_timer_callback)(repeating_timer_t *rt)
     }
 bool zx_flash_callback(repeating_timer_t *rt) {zx_machine_flashATTR();};
 
-#define D_JOY_DATA_PIN (16)
-#define D_JOY_CLK_PIN (14)
-#define D_JOY_LATCH_PIN (15)
-volatile int us_val=0;
-void d_sleep_us(uint us)
-{
-    for(uint i=0;i<us;i++)
-    {
-        for(int j=0;j<25;j++)
-        {
-            us_val++;
-        }
-    }
-}
-uint8_t d_joy_get_data()
-{
-    uint8_t data;
-    gpio_put(D_JOY_LATCH_PIN,1);
-    //gpio_put(D_JOY_CLK_PIN,1);
-    d_sleep_us(12);
-    gpio_put(D_JOY_LATCH_PIN,0);
-    d_sleep_us(6);
+Joy joy2 = {16, 14, 15, 0, 0, 0};
+Joy joy1 = {2, 5, 4, 0, 0, 0};
 
-    for(int i=0;i<8;i++)
-    {   
-       
-        gpio_put(D_JOY_CLK_PIN,0);  
-        d_sleep_us(10);
-        data<<=1;
-        data|=gpio_get(D_JOY_DATA_PIN);
-        d_sleep_us(10);
-
-        
-        gpio_put(D_JOY_CLK_PIN,1); 
-        d_sleep_us(10);
-
-    }
-    return data;
-
-};
-void d_joy_init()
-{
-    gpio_init(D_JOY_CLK_PIN);
-    gpio_set_dir(D_JOY_CLK_PIN,GPIO_OUT);
-    gpio_init(D_JOY_LATCH_PIN);
-    gpio_set_dir(D_JOY_LATCH_PIN,GPIO_OUT);
-
-    gpio_init(D_JOY_DATA_PIN);
-    gpio_set_dir(D_JOY_DATA_PIN,GPIO_IN);
-    //gpio_pull_up(D_JOY_DATA_PIN);
-    gpio_pull_down(D_JOY_DATA_PIN);
-    gpio_put(D_JOY_LATCH_PIN,0);
-
-
-}
 int main(void)
 {  
     vreg_set_voltage(VREG_VOLTAGE_1_20);
@@ -164,6 +114,9 @@ int main(void)
     set_sys_clock_khz(252000, false);
     stdio_init_all();
     g_delay_ms(100);
+
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
     G_PRINTF("Main Program Start!!!\n");
     G_PRINTF("CPU clock=%d Hz\n",clock_get_hz(clk_sys));
@@ -213,44 +166,24 @@ int main(void)
    // memset(&zx_input,0,sizeof(ZX_Input_t));
     //kb_u_state kb_st;
    // memset(&kb_st,0,sizeof(kb_st));
-    d_joy_init();
-    uint8_t data_joy=0;
+    Joy_init(&joy1);
+    Joy_init(&joy2);
     uint inx=0;        
-    uint8_t new_data_joy;
-
-    uint8_t new_start_button;
-    uint8_t start_button=0;
-    uint8_t start_key=1;
-
-    uint8_t new_select_button;
-    uint8_t select_button=0;
-    uint8_t select_key=1;
-
-    uint8_t new_B_button;
-    uint8_t B_button=0;
-    uint8_t B_key=1;
-
-    // uint8_t joy_mode=0;
-
-    // char joy_mode_str[4][12] = {"kempston","sinclair1","sinclair2","cursor"};
-    // #define JOY_KEMPSTON_MODE 0
-    // #define JOY_SINCLAIR1_MODE 1
-    // #define JOY_SINCLAIR2_MODE 2
-    // #define JOY_CURSOR_MODE 3
-
+  
     convert_kb_u_to_kb_zx(&kb_st_ps2,zx_input.kb_data);
+    zx_machine_input_set(&zx_input);
 
     while(1)
     {   
         if (decode_PS2())
         {
+            if (((kb_st_ps2.u[1]&KB_U1_L_CTRL)||(kb_st_ps2.u[1]&KB_U1_R_CTRL))&&((kb_st_ps2.u[1]&KB_U1_L_ALT)||(kb_st_ps2.u[1]&KB_U1_R_ALT))&&(kb_st_ps2.u[2]&KB_U2_DELETE))
+            {
+                G_PRINTF_INFO("restart\n");
+                software_reset();
+            }
             convert_kb_u_to_kb_zx(&kb_st_ps2,zx_input.kb_data);
             
-            if (((kb_st_ps2.u[1]&KB_U1_L_CTRL)||(kb_st_ps2.u[1]&KB_U1_R_CTRL))&&((kb_st_ps2.u[1]&KB_U1_L_ALT)||(kb_st_ps2.u[1]&KB_U1_R_ALT))&&(kb_st_ps2.u[2]&KB_U2_DELETE))
-                {
-                    G_PRINTF_INFO("restart\n");
-                    software_reset();
-                }
 
             uint inx_f1=0;
             switch (kb_st_ps2.u[3])
@@ -284,74 +217,12 @@ int main(void)
         };
         g_delay_ms(1);
         //опрос джоя
-        if (!(inx++&0xF)) {
-            new_data_joy=d_joy_get_data();   
-
-            //кнопка старт нажимает "0", select по очереди нажимает от 1 до 4
-            new_start_button=((~new_data_joy&0x10)>>4)&1; 
-            new_select_button=((~new_data_joy&0x20)>>5)&1; 
-            new_B_button=((~new_data_joy&0x40)>>6)&1; 
-            // if((start_button!=new_start_button)&&(select_button!=new_select_button)&&(new_select_button==new_start_button))
-            // {
-            //     joy_mode=(joy_mode+start_button)&3;
-            //     // printf("%d\n",joy_mode);
-            //     start_button=new_start_button;
-            //     select_button=new_select_button;
-            //     zx_input.kb_data[3]=0;
-            // }
-            // else
-            // {
-                if(start_button!=new_start_button)
-                {
-                    start_button=new_start_button;
-                    if(start_button) zx_input.kb_data[6]|=start_key;else zx_input.kb_data[6]&=~start_key;
-                }            
-                if(select_button!=new_select_button)
-                {
-                    select_button=new_select_button;
-                    if(select_button) zx_input.kb_data[3]|=select_key;
-                    else 
-                    {
-                        zx_input.kb_data[3]&=~select_key;
-                        select_key+=select_key;if(select_key>8)select_key=1;
-                    }
-                }
-                if(B_button!=new_B_button)
-                {
-                    B_button=new_B_button;
-                    if(B_button) zx_input.kb_data[4]|=B_key;else zx_input.kb_data[4]&=~B_key;
-                }            
-                // switch (joy_mode)
-                // {
-                // case JOY_KEMPSTON_MODE:
-                //     break;
-                // case JOY_SINCLAIR1_MODE:
-                //     break;
-                // case JOY_SINCLAIR2_MODE:
-                //     break;
-                // case JOY_CURSOR_MODE:
-                //     break;
-                // }
-            // }
-        }
-        
+        // if (!(inx++&0xF))  new_data_joy=d_joy_get_data();   
+        if (!(inx++&0xF)) {Joy_get_data(&joy1);Joy_get_data(&joy2);}
         //continue;
 
-        if ((new_data_joy!=data_joy)/*&&(joy_mode==JOY_KEMPSTON_MODE)*/)
-        {
-            data_joy=new_data_joy;
-            data_joy=(data_joy&0x0f)|((data_joy>>2)&0x30)|((data_joy<<3)&0x80)|((data_joy<<1)&0x40);
-
-            zx_input.kempston=(~data_joy);
-            zx_machine_input_set(&zx_input);            
-            data_joy=new_data_joy;
-
-            // G_PRINTF_INFO("data joy=0x%02x\n",~data_joy);
-            //g_delay_ms(1000);
-            
-
-        }
-        
+        if(Joy_is_new_data(&joy1))Joy_to_zx(&joy1,&zx_input);
+        if(Joy_is_new_data(&joy2))Joy_to_zx(&joy2,&zx_input);
+        zx_machine_input_set(&zx_input);
     }
-    
 }

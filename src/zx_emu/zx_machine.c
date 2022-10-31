@@ -123,11 +123,13 @@ static uint8_t FAST_FUNC(in_z80)(z80* const z, uint8_t port) {
   uint8_t portH=z->_hi_addr_port;
   uint8_t portL=port;
   uint16_t port16=(portH<<8)|portL;
+
   if (port16&1)
     {
           uint16_t not_port16=~port16;
-          if (not_port16&0x20) {return zx_input.kempston;}//kempston{return 0xff;};//
-          if (((not_port16&0x4002)==0x4002)&&((port16&0x8000)==0x8000)) return AY_get_reg();  //bffd
+          if (not_port16&0x20) {return zx_input.kempston;}//kempston{return 0xff;};
+//          if (port16 == 0xfffd) return AY_get_reg();  //fffd
+          if (((not_port16&0x0002)==0x0002)&&((port16&0xC000)==0xC000)) return AY_get_reg();  //fffd
 
 
 
@@ -188,10 +190,11 @@ static void FAST_FUNC(out_z80)(z80* const z, uint8_t port, uint8_t val) {
   uint8_t portH=z->_hi_addr_port;
   uint8_t portL=port;
   uint16_t port16=(portH<<8)|portL;
+
   if (port16&1)
     {
           uint16_t not_port16=~port16;
-           //чип AY
+
            if (((not_port16&0x0002)==0x0002)&&((port16&0xc000)==0xc000)) { AY_select_reg(val); return;} //fffd
            if (((not_port16&0x4002)==0x4002)&&((port16&0x8000)==0x8000)) { AY_set_reg(val); return;} //bffd
 
